@@ -74,13 +74,56 @@ class ClinicalRAGAssistant:
 
         return self._static_guidelines_fallback(query)
 
-    async def answer_patient_query(self, query: str) -> Dict[str, Any]:
-        """Synthesizes clinical answer grounded strictly in retrieved guideline chunks."""
+    async def answer_patient_query(
+        self,
+        query: str,
+        user_context: Optional[Dict[str, Any]] = None,
+        conversation_history: Optional[List[Dict[str, Any]]] = None
+    ) -> Dict[str, Any]:
+        """Synthesizes clinical answer grounded in retrieved guidelines, personalized with user biometrics & conversation memory."""
         passages = await self.retrieve_guideline_passages(query)
         context_str = "\n\n".join([
             f"Source: {p.get('source', 'Guideline')}\nChapter: {p.get('chapter', 'General')}\nExcerpt: {p.get('content', '')}"
             for p in passages
         ])
+
+        # Format user biometrics snapshot if provided
+        user_context_block = ""
+        if user_context:
+            uc_lines = ["Patient Real-Time Health & Biometrics Snapshot:"]
+            if "latest_glucose" in user_context and user_context["latest_glucose"] is not None:
+                ctx = user_context.get("latest_glucose_context", "recent")
+                uc_lines.append(f"- Latest Blood Glucose: {user_context['latest_glucose']} mg/dL ({ctx})")
+            if "avg_glucose_7d" in user_context and user_context["avg_glucose_7d"] is not None:
+                uc_lines.append(f"- 7-Day Average Glucose: {user_context['avg_glucose_7d']} mg/dL")
+            if "today_steps" in user_context:
+                uc_lines.append(f"- Today's Step Count: {user_context['today_steps']} steps")
+            if "today_exercise_minutes" in user_context:
+                uc_lines.append(f"- Today's Workout Minutes: {user_context['today_exercise_minutes']} min")
+            if "today_workouts" in user_context and user_context["today_workouts"]:
+                uc_lines.append(f"- Today's Logged Activities: {', '.join(user_context['today_workouts'])}")
+            if "today_carbs_g" in user_context:
+                uc_lines.append(f"- Today's Total Carbs: ~{user_context['today_carbs_g']}g carbs")
+            if "today_calories" in user_context:
+                uc_lines.append(f"- Today's Total Calories: ~{user_context['today_calories']} kcal")
+            if "today_meals" in user_context and user_context["today_meals"]:
+                uc_lines.append(f"- Today's Logged Meals: {'; '.join(user_context['today_meals'])}")
+            if "diabetes_type" in user_context:
+                uc_lines.append(f"- Diagnosis: {user_context['diabetes_type']}")
+
+            user_context_block = "\n".join(uc_lines) + "\n\n"
+
+        # Format conversation memory history if provided
+        history_block = ""
+        if conversation_history:
+            h_lines = ["Recent Advice Memory & Previous Recommendations:"]
+            for h in conversation_history[-3:]:  # last 3 interactions
+                q_text = h.get("question", "")
+                a_text = h.get("answer", "")
+                if len(a_text) > 150:
+                    a_text = a_text[:150] + "..."
+                h_lines.append(f"- User asked: \"{q_text}\" -> AI advised: \"{a_text}\"")
+            history_block = "\n".join(h_lines) + "\n\n"
 
         if not self.gemini_api_key:
             return {
@@ -95,10 +138,10 @@ class ClinicalRAGAssistant:
             }
 
         prompt = f"""
-You are the GlucoGuard Clinical Assistant, an evidence-based diabetes guide.
-Answer the patient's question accurately, empathetically, and strictly based on the retrieved medical guidelines below.
+You are the GlucoGuard Clinical AI Assistant, an empathetic, highly specialized diabetes guide.
+Answer the patient's question accurately, personalized to their live health snapshot and recent advice history, strictly grounded in the official medical guidelines below.
 
-Retrieved Clinical Guidelines:
+{user_context_block}{history_block}Retrieved Clinical Guidelines:
 {context_str}
 
 Patient Question:
@@ -106,9 +149,11 @@ Patient Question:
 
 Guidelines:
 1. Base your explanation strictly on the provided clinical guidelines (ADA, ICMR, WHO, CDC).
-2. Explicitly cite the guideline source in your answer.
-3. NEVER prescribe, modify, or suggest specific insulin dose units or medication adjustments.
-4. Always conclude with the mandatory safety disclaimer:
+2. If the patient's real-time biometrics (glucose, steps, carbs, meals) are provided, directly reference and correlate them with the clinical advice (e.g., how their meal carbs or post-meal steps impact their current glucose reading).
+3. If previous advice was given in the memory, maintain conversational consistency.
+4. Explicitly cite the guideline source in your answer.
+5. NEVER prescribe, modify, or suggest specific insulin dose units or prescription medication adjustments.
+6. Always conclude with the mandatory safety disclaimer:
 "⚠️ Medical Disclaimer: GlucoGuard provides clinical information for educational guidance. Always consult your healthcare provider or endocrinologist before modifying your insulin dosages or medical treatments."
 """
 

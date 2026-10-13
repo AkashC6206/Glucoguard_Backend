@@ -95,3 +95,34 @@ BEGIN
     LIMIT match_count;
 END;
 $$;
+
+-- 7. AI Advice History & Memory Table
+CREATE TABLE IF NOT EXISTS public.ai_advice_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    question TEXT NOT NULL,
+    answer TEXT NOT NULL,
+    citations JSONB DEFAULT '[]'::jsonb,
+    biometrics_snapshot JSONB DEFAULT '{}'::jsonb,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Enable RLS
+ALTER TABLE public.ai_advice_history ENABLE ROW LEVEL SECURITY;
+
+-- RLS Policies
+CREATE POLICY "Users can view own advice history"
+    ON public.ai_advice_history FOR SELECT
+    TO authenticated
+    USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own advice history"
+    ON public.ai_advice_history FOR INSERT
+    TO authenticated
+    WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own advice history"
+    ON public.ai_advice_history FOR DELETE
+    TO authenticated
+    USING (auth.uid() = user_id);
+

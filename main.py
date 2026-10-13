@@ -56,6 +56,8 @@ class NOf1TrialRequest(BaseModel):
 
 class RAGQuestionRequest(BaseModel):
     question: str = Field(example="What is the ADA recommended target for post-prandial blood sugar?")
+    user_context: Optional[Dict[str, Any]] = Field(default=None, description="Patient biometrics snapshot (glucose, steps, carbs, meals)")
+    conversation_history: Optional[List[Dict[str, Any]]] = Field(default=None, description="Recent conversation memory")
 
 class ModerationRequest(BaseModel):
     post_text: str = Field(example="My doctor adjusted my metformin, email me at test@example.com")
@@ -103,10 +105,14 @@ def evaluate_n_of_1_experiment(req: NOf1TrialRequest):
 
 @app.post("/api/rag/ask")
 async def ask_clinical_assistant(req: RAGQuestionRequest):
-    """Section 5.1 - 5.3: Evidence-grounded Clinical RAG Assistant with mandatory guidelines."""
+    """Section 5.1 - 5.3: Evidence-grounded Clinical RAG Assistant with mandatory guidelines and personalized health context."""
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Question cannot be empty.")
-    result = await rag_assistant.answer_patient_query(req.question.strip())
+    result = await rag_assistant.answer_patient_query(
+        query=req.question.strip(),
+        user_context=req.user_context,
+        conversation_history=req.conversation_history
+    )
     return result
 
 @app.post("/api/moderation/screen")
