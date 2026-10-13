@@ -72,10 +72,14 @@ class MisinformationClassifier:
         # If Gemini API key is configured, perform semantic safety check
         if self.gemini_api_key:
             candidate_models = [
-                os.getenv("GEMINI_MODEL", "gemini-3.5-flash"),
+                os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite"),
+                "gemini-3.1-flash-lite",
+                "gemini-3.1-flash-lite-preview",
+                "gemini-3.8-flash",
+                "gemini-3.7-flash",
+                "gemini-3.6-flash",
                 "gemini-3.5-flash",
                 "gemini-flash-lite-latest",
-                "gemini-3.6-flash",
             ]
             models_to_try = []
             for m in candidate_models:
