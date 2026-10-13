@@ -45,13 +45,16 @@ class FoodNLPParser:
             # Simple rule-based mock fallback if no API key is set yet
             return self._heuristic_fallback(text)
 
-        model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
-            generation_config={
-                "response_mime_type": "application/json",
-                "temperature": 0.1,
-            }
-        )
+        candidate_models = [
+            os.getenv("GEMINI_MODEL", "gemini-3.5-flash"),
+            "gemini-3.5-flash",
+            "gemini-flash-lite-latest",
+            "gemini-3.6-flash",
+        ]
+        models_to_try = []
+        for m in candidate_models:
+            if m and m not in models_to_try:
+                models_to_try.append(m)
 
         prompt = f"""
 You are a certified clinical nutritionist and diabetes specialist for GlucoGuard.
@@ -82,12 +85,24 @@ Output strictly in valid JSON matching this schema:
   "clinical_note": "Short tip regarding glycemic impact and meal sequencing"
 }}
 """
-        try:
-            response = await model.generate_content_async(prompt)
-            data = json.loads(response.text)
-            return data
-        except Exception as e:
-            return self._heuristic_fallback(text, error=str(e))
+        last_err = None
+        for model_name in models_to_try:
+            try:
+                model = genai.GenerativeModel(
+                    model_name=model_name,
+                    generation_config={
+                        "response_mime_type": "application/json",
+                        "temperature": 0.1,
+                    }
+                )
+                response = await model.generate_content_async(prompt)
+                if response and response.text:
+                    return json.loads(response.text)
+            except Exception as e:
+                last_err = str(e)
+                continue
+
+        return self._heuristic_fallback(text, error=last_err)
 
     def _heuristic_fallback(self, text: str, error: Optional[str] = None) -> Dict[str, Any]:
         """Safety fallback when API key is missing or offline."""

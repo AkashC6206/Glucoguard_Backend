@@ -157,20 +157,46 @@ Guidelines:
 "⚠️ Medical Disclaimer: GlucoGuard provides clinical information for educational guidance. Always consult your healthcare provider or endocrinologist before modifying your insulin dosages or medical treatments."
 """
 
-        try:
-            model = genai.GenerativeModel("gemini-1.5-flash")
-            response = await model.generate_content_async(prompt)
-            return {
-                "answer": response.text.strip(),
-                "citations": list(set([p.get("source", "ADA Standards of Care") for p in passages])),
-                "retrieved_chunks": passages
-            }
-        except Exception as e:
-            return {
-                "answer": f"Clinical RAG is currently offline: {e}",
-                "citations": [],
-                "retrieved_chunks": []
-            }
+        candidate_models = [
+            os.getenv("GEMINI_MODEL", "gemini-3.5-flash"),
+            "gemini-3.5-flash",
+            "gemini-flash-lite-latest",
+            "gemini-3.6-flash",
+            "gemini-3.8-flash",
+        ]
+        models_to_try = []
+        for m in candidate_models:
+            if m and m not in models_to_try:
+                models_to_try.append(m)
+
+        for model_name in models_to_try:
+            try:
+                model = genai.GenerativeModel(model_name)
+                response = await model.generate_content_async(prompt)
+                if response and response.text:
+                    return {
+                        "answer": response.text.strip(),
+                        "citations": list(set([p.get("source", "ADA Standards of Care") for p in passages])),
+                        "retrieved_chunks": passages
+                    }
+            except Exception as e:
+                print(f"Clinical RAG warning ({model_name}): {e}")
+                continue
+
+        # If all generative models fail, construct clean evidence-grounded guideline summary
+        citations = list(set([p.get("source", "ADA Standards of Care 2024") for p in passages]))
+        passages_summary = "\n\n".join([f"• [{p.get('source', 'Clinical Standards')}]: {p.get('content', '')}" for p in passages[:3]])
+        fallback_answer = (
+            f"Here is verified clinical guidance from our medical knowledge base:\n\n"
+            f"{passages_summary}\n\n"
+            f"⚠️ Medical Disclaimer: GlucoGuard provides clinical information for educational guidance. "
+            f"Always consult your healthcare provider or endocrinologist before modifying your insulin dosages or medical treatments."
+        )
+        return {
+            "answer": fallback_answer,
+            "citations": citations,
+            "retrieved_chunks": passages
+        }
 
     def _static_guidelines_fallback(self, query: str) -> List[Dict[str, Any]]:
         """Static clinical reference passages if database is not yet seeded."""

@@ -71,12 +71,18 @@ class MisinformationClassifier:
 
         # If Gemini API key is configured, perform semantic safety check
         if self.gemini_api_key:
-            try:
-                model = genai.GenerativeModel(
-                    model_name="gemini-1.5-flash",
-                    generation_config={"response_mime_type": "application/json", "temperature": 0.0}
-                )
-                prompt = f"""
+            candidate_models = [
+                os.getenv("GEMINI_MODEL", "gemini-3.5-flash"),
+                "gemini-3.5-flash",
+                "gemini-flash-lite-latest",
+                "gemini-3.6-flash",
+            ]
+            models_to_try = []
+            for m in candidate_models:
+                if m and m not in models_to_try:
+                    models_to_try.append(m)
+
+            prompt = f"""
 Evaluate if this diabetes community post is clinically safe.
 Flag unsafe if it advises stopping prescribed insulin/medication, advertises unproven miracle cures, or gives dangerous medical advice.
 
@@ -88,14 +94,21 @@ Output strictly JSON:
   "flagged_reason": ""
 }}
 """
-                resp = await model.generate_content_async(prompt)
-                data = json.loads(resp.text)
-                return {
-                    "is_safe": bool(data.get("is_safe", True)),
-                    "flagged_reason": str(data.get("flagged_reason", "")),
-                    "confidence": 0.95
-                }
-            except Exception:
-                pass
+            for model_name in models_to_try:
+                try:
+                    model = genai.GenerativeModel(
+                        model_name=model_name,
+                        generation_config={"response_mime_type": "application/json", "temperature": 0.0}
+                    )
+                    resp = await model.generate_content_async(prompt)
+                    if resp and resp.text:
+                        data = json.loads(resp.text)
+                        return {
+                            "is_safe": bool(data.get("is_safe", True)),
+                            "flagged_reason": str(data.get("flagged_reason", "")),
+                            "confidence": 0.95
+                        }
+                except Exception:
+                    continue
 
         return {"is_safe": True, "flagged_reason": "", "confidence": 0.90}
