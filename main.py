@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from ml.food_nlp import FoodNLPParser
 from ml.causal_engine import NOf1CausalComparator, CounterfactualActionRanker
 from ml.moderation import PrivacyScrubber, MisinformationClassifier
+from ml.glucose_predictor import GlucoseTrendPredictor
 from rag.clinical_rag import ClinicalRAGAssistant
 
 load_dotenv()
@@ -37,10 +38,24 @@ app.add_middleware(
 food_parser = FoodNLPParser()
 rag_assistant = ClinicalRAGAssistant()
 misinformation_classifier = MisinformationClassifier()
+glucose_predictor = GlucoseTrendPredictor()
 
 # -----------------------------------------------------------------------------
 # Request & Response Models
 # -----------------------------------------------------------------------------
+class GlucosePredictRequest(BaseModel):
+    glucose_lag_1: Optional[float] = Field(default=115.0, description="Current glucose reading in mg/dL")
+    glucose_lag_2: Optional[float] = Field(default=110.0, description="Previous glucose reading in mg/dL")
+    carbs_g: Optional[float] = Field(default=45.0, description="Meal carbohydrates in grams")
+    fiber_g: Optional[float] = Field(default=4.0, description="Fiber in grams")
+    time_since_meal_min: Optional[float] = Field(default=30.0, description="Minutes elapsed since meal")
+    daily_steps: Optional[float] = Field(default=4500.0, description="Steps recorded today")
+    post_meal_walk_min: Optional[float] = Field(default=0.0, description="Minutes walked within 30 min of meal")
+    sleep_hours: Optional[float] = Field(default=7.5, description="Sleep duration last night")
+    sleep_quality: Optional[float] = Field(default=4.0, description="Sleep quality 1-5")
+    stress_level: Optional[float] = Field(default=2.0, description="Stress level 1-5")
+    hour_of_day: Optional[float] = Field(default=14.0, description="Hour of the day 0-23")
+
 class FoodParseRequest(BaseModel):
     meal_text: str = Field(description="Natural language meal description", example="Two rotis with dal and cucumber salad")
 
@@ -92,6 +107,12 @@ def simulate_counterfactuals(req: CounterfactualRequest):
         baseline_glucose=req.baseline_glucose
     )
     return {"options": options}
+
+@app.post("/api/ml/predict-glucose-trend")
+def predict_glucose_trend(req: GlucosePredictRequest):
+    """Section 4.5: XGBoost & physiological ML glucose trend forecasting."""
+    result = glucose_predictor.predict_trend(req.model_dump())
+    return result
 
 @app.post("/api/experiments/n-of-1")
 def evaluate_n_of_1_experiment(req: NOf1TrialRequest):
